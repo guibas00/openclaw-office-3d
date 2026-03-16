@@ -175,10 +175,10 @@
 
             try {
 
-                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                // ← Aqui: aponta para o proxy que você configurou
+                const response = await fetch("http://20.59.16.190:80/chat", {
                     method: "POST",
                     headers: {
-                        "Authorization": "Bearer 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",
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
@@ -198,6 +198,7 @@
 
                 chatMessages.lastChild.innerText = `PC: ${aiMessage}`;
 
+                // efeito visual no objeto PC
                 world.interactiveObjects.pc.material.emissive.setHex(0x00ff00);
                 world.interactiveObjects.pc.material.emissiveIntensity = 5;
 
