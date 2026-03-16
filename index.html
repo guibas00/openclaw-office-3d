@@ -76,6 +76,21 @@
         #chat-input::placeholder {
             color: #050;
         }
+
+        #chat-send-btn {
+            background: #0f0;
+            border: none;
+            color: #000;
+            padding: 5px 10px;
+            margin-left: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 4px;
+        }
+
+        #chat-send-btn:active {
+            background: #0c0;
+        }
     </style>
 </head>
 
@@ -94,6 +109,7 @@
         <div id="chat-input-area">
             <span>> </span>
             <input type="text" id="chat-input" placeholder="Digite sua mensagem..." autocomplete="off">
+            <button id="chat-send-btn">Enviar</button>
         </div>
     </div>
 
@@ -122,16 +138,11 @@
         const light = new THREE.PointLight(0xffffff, 100);
         light.position.set(2, 5, 2);
         light.castShadow = true;
-
         scene.add(light);
         scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
-        const world = new World(scene, camera, (show) => {
-            chatOverlay.style.display = show ? 'flex' : 'none';
-            if(show) chatInput.focus();
-        });
-
-        const player = new Player(scene, world);
+        const world = new World(scene);
+        const player = new Player(scene);
 
         const keys = {};
         let isChatOpen = false;
@@ -139,6 +150,7 @@
         const chatOverlay = document.getElementById('chat-overlay');
         const chatInput = document.getElementById('chat-input');
         const chatMessages = document.getElementById('chat-messages');
+        const chatSendBtn = document.getElementById('chat-send-btn');
 
         const chatHistory = [
             {
@@ -150,7 +162,6 @@
         function toggleChat(show) {
             isChatOpen = show;
             chatOverlay.style.display = show ? "flex" : "none";
-
             if (show) {
                 chatInput.focus();
                 Object.keys(keys).forEach(k => keys[k] = false);
@@ -166,10 +177,8 @@
         }
 
         async function sendChatMessage(text) {
-
             addMessage(text, 'user-msg');
             chatInput.value = "";
-
             addMessage("Processando...", 'pc-msg');
 
             chatHistory.push({
@@ -178,8 +187,6 @@
             });
 
             try {
-
-                // ← Aqui: aponta para o proxy que você configurou
                 const response = await fetch("https://favorite-luther-terminology-rural.trycloudflare.com/chat", {
                     method: "POST",
                     headers: {
@@ -192,7 +199,6 @@
                 });
 
                 const data = await response.json();
-
                 const aiMessage = data.choices?.[0]?.message?.content || "Erro ao gerar resposta.";
 
                 chatHistory.push({
@@ -202,71 +208,57 @@
 
                 chatMessages.lastChild.innerText = `PC: ${aiMessage}`;
 
-                // efeito visual no objeto PC
                 world.interactiveObjects.pc.material.emissive.setHex(0x00ff00);
                 world.interactiveObjects.pc.material.emissiveIntensity = 5;
 
             } catch (e) {
-
                 console.error(e);
-
                 chatMessages.lastChild.innerText = "PC: ERRO: Falha na comunicação com o servidor.";
-
             }
-
         }
 
+        // Enviar via botão
+        chatSendBtn.addEventListener('click', () => {
+            const text = chatInput.value.trim();
+            if (text) sendChatMessage(text);
+        });
+
+        // Enviar via Enter do teclado (desktop e mobile)
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                const text = chatInput.value.trim();
+                if (text) sendChatMessage(text);
+            }
+        });
+
         window.addEventListener("keydown", (e) => {
-
             if (isChatOpen) {
-
                 if (e.key === "Escape") toggleChat(false);
-
-                if (e.key === "Enter" && chatInput.value.trim() !== "") {
-                    sendChatMessage(chatInput.value.trim());
-                }
-
                 return;
             }
 
             keys[e.key.toLowerCase()] = true;
 
             if (e.key.toLowerCase() === "e") {
-
                 const dist = player.group.position.distanceTo(world.interactiveObjects.pc.position);
-
-                if (dist < 2.5) {
-                    toggleChat(true);
-                }
-
+                if (dist < 2.5) toggleChat(true);
             }
-
         });
 
         window.addEventListener("keyup", (e) => {
-
-            if (!isChatOpen) {
-                keys[e.key.toLowerCase()] = false;
-            }
-
+            if (!isChatOpen) keys[e.key.toLowerCase()] = false;
         });
 
         const clock = new THREE.Clock();
 
         function animate() {
-
             requestAnimationFrame(animate);
-
             const delta = clock.getDelta();
-
-            if (!isChatOpen) {
-                player.update(delta, keys, world.obstacles);
-            }
+            if (!isChatOpen) player.update(delta, keys, world.obstacles);
 
             const playerHead = player.group.position.clone().add(new THREE.Vector3(0, 1.6, 0));
-
             const idealOffset = new THREE.Vector3(0, 2.5, -4).applyMatrix4(player.group.matrixWorld);
-
             const rayDir = new THREE.Vector3().subVectors(idealOffset, playerHead).normalize();
 
             const raycaster = new THREE.Raycaster(
@@ -277,7 +269,6 @@
             );
 
             const intersects = raycaster.intersectObjects(scene.children, true);
-
             let camPos = idealOffset;
 
             const hit = intersects.find(i =>
@@ -285,21 +276,15 @@
                 !player.group.children.includes(i.object)
             );
 
-            if (hit) {
-                camPos = hit.point.clone().sub(rayDir.multiplyScalar(0.2));
-            }
+            if (hit) camPos = hit.point.clone().sub(rayDir.multiplyScalar(0.2));
 
             camera.position.lerp(camPos, 0.1);
-
             camera.lookAt(playerHead);
-
             renderer.render(scene, camera);
-
         }
 
         animate();
 
     </script>
 </body>
-
 </html>
