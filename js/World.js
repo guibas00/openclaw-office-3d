@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 
 export class World {
-    constructor(scene) {
+    constructor(scene, camera, toggleChatCallback) {
         this.scene = scene;
         this.obstacles = [];
         this.interactiveObjects = {};
+        this.camera = camera; // ⚡ Adicionado: câmera para raycaster do player
+        this.toggleChat = toggleChatCallback; // ⚡ Adicionado: função para abrir chat
         this._build();
     }
 

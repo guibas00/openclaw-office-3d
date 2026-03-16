@@ -126,8 +126,12 @@
         scene.add(light);
         scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
-        const world = new World(scene);
-        const player = new Player(scene);
+        const world = new World(scene, camera, (show) => {
+            chatOverlay.style.display = show ? 'flex' : 'none';
+            if(show) chatInput.focus();
+        });
+
+        const player = new Player(scene, world);
 
         const keys = {};
         let isChatOpen = false;
