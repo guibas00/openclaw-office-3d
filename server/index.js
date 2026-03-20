@@ -116,6 +116,19 @@ io.on('connection', (socket) => {
         delete players[socket.id];
         io.emit('player_left', socket.id);
     });
+
+    // --- WEBRTC SIGNALING ---
+    socket.on('webrtc_offer', (data) => {
+        io.to(data.target).emit('webrtc_offer', { sender: socket.id, sdp: data.sdp });
+    });
+
+    socket.on('webrtc_answer', (data) => {
+        io.to(data.target).emit('webrtc_answer', { sender: socket.id, sdp: data.sdp });
+    });
+
+    socket.on('webrtc_ice_candidate', (data) => {
+        io.to(data.target).emit('webrtc_ice_candidate', { sender: socket.id, candidate: data.candidate });
+    });
 });
 
 const PORT = process.env.PORT || 3001;

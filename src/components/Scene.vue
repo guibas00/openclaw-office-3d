@@ -1,14 +1,32 @@
 <template>
   <div ref="container" class="scene-container">
-    <div id="ui">
+    <button v-if="isMobile && !showMobileMenu" @click="showMobileMenu = true" id="menu-toggle-btn">
+      ☰ Menu
+    </button>
+    <div id="menu-overlay" v-if="isMobile && showMobileMenu" @click="showMobileMenu = false"></div>
+
+    <div id="ui" v-show="!isMobile || showMobileMenu">
         <b>SISTEMA MULTIPLAYER</b><br>
         OLÁ, {{ playerName }} | WASD: Mover<br>
         <span id="status" style="color: yellow;">NPC: {{ npcLocalStatus }}</span><br>
         <button @click="toggleCamera" class="cam-btn">
           Câmera: {{ isFirstPerson ? '1ª Pessoa' : 'Isométrica' }} (V)
         </button>
+        <button @click="toggleVoiceChat" class="cam-btn" :style="{ background: inVoiceChat ? '#aa4444' : '#44aa44', marginLeft: '5px' }">
+          {{ inVoiceChat ? 'Sair da Voz' : 'Entrar na Voz' }}
+        </button>
+        <button v-if="inVoiceChat" @click="toggleVoiceMute" class="cam-btn" style="margin-left: 5px;">
+          {{ isVoiceMuted ? 'Desmutar' : 'Mutar' }} (M)
+        </button>
+        <button v-if="isMobile" @click="showMobileChat = true" class="cam-btn" style="margin-left: 5px; background: #55aadd; color: #fff;">
+          💬 Chat
+        </button>
     </div>
-    <div id="chat-container">
+    <div id="chat-container" v-show="!isMobile || showMobileChat" :class="{ 'mobile-active': isMobile }">
+      <div class="chat-header" v-if="isMobile">
+        <span>Bate-papo</span>
+        <button @click="showMobileChat = false" class="chat-close-btn">X</button>
+      </div>
       <div class="chat-messages" ref="chatMessagesRef">
         <div v-for="(msg, i) in chatMessages" :key="i" class="chat-message">
           <strong>{{ msg.name }}:</strong> {{ msg.text }}
@@ -27,13 +45,8 @@
     </div>
 
     <div id="mobile-controls" v-if="isMobile">
-      <div class="dpad">
-        <button @touchstart.prevent="keys['w']=true" @touchend.prevent="keys['w']=false" class="dpad-btn up">W</button>
-        <div class="dpad-row">
-          <button @touchstart.prevent="keys['a']=true" @touchend.prevent="keys['a']=false" class="dpad-btn left">A</button>
-          <button @touchstart.prevent="keys['s']=true" @touchend.prevent="keys['s']=false" class="dpad-btn down">S</button>
-          <button @touchstart.prevent="keys['d']=true" @touchend.prevent="keys['d']=false" class="dpad-btn right">D</button>
-        </div>
+      <div id="joystick-wrapper">
+        <div id="joystick-zone" ref="joystickZone"></div>
       </div>
       <div class="action-btn-container">
         <button @touchstart.prevent="keys[' ']=true" @touchend.prevent="keys[' ']=false" class="action-btn">PULAR</button>
@@ -49,6 +62,8 @@ import * as THREE from 'three';
 import { World } from '../js/World.js';
 import { Player } from '../js/Player.js';
 import { NPC } from '../js/NPC.js';
+import { VoiceChat } from '../js/VoiceChat.js';
+import nipplejs from 'nipplejs';
 
 const props = defineProps(['playerName', 'playerSkin']); // Recebe a skin
 const container = ref(null);
@@ -60,6 +75,36 @@ const isChatFocused = ref(false);
 const chatMessagesRef = ref(null);
 const isFirstPerson = ref(false);
 const isMobile = ref(false);
+const showMobileChat = ref(false);
+const showMobileMenu = ref(false);
+const isPortrait = ref(true);
+const joystickZone = ref(null);
+
+const inVoiceChat = ref(false);
+const isVoiceMuted = ref(false);
+let voiceChat = null;
+
+function toggleVoiceChat() {
+  if (!inVoiceChat.value) {
+    voiceChat.joinVoiceChat().then(success => {
+      if (success) {
+        inVoiceChat.value = true;
+        Object.keys(remotePlayers).forEach(id => {
+          voiceChat.connectToPeer(id);
+        });
+      }
+    });
+  } else {
+    voiceChat.leaveVoiceChat();
+    inVoiceChat.value = false;
+  }
+}
+
+function toggleVoiceMute() {
+  if (voiceChat) {
+    isVoiceMuted.value = voiceChat.toggleMute();
+  }
+}
 
 let socket, scene, renderer, world, player, npc;
 let isoCamera, fpCamera, activeCamera;
@@ -72,17 +117,49 @@ function toggleCamera() {
   if (player) {
     player.setFirstPerson(isFirstPerson.value);
   }
+  if (world) {
+    world.setFirstPersonMode(isFirstPerson.value);
+  }
 }
 
 function sendChatMessage() {
   if (chatInput.value.trim() && socket) {
     socket.emit('chat_message', { name: props.playerName, text: chatInput.value.trim() });
     chatInput.value = '';
+    if (isMobile.value) showMobileChat.value = false;
   }
 }
 
 onMounted(() => {
   isMobile.value = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+  
+  if (isMobile.value) {
+    setTimeout(() => {
+      if (joystickZone.value) {
+        const manager = nipplejs.create({
+          zone: joystickZone.value,
+          mode: 'static',
+          position: { left: '50%', top: '50%' },
+          color: '#ddaa55',
+          size: 120
+        });
+
+        manager.on('move', (evt, data) => {
+          if (data && data.vector) {
+            keys['w'] = data.vector.y > 0.3;
+            keys['s'] = data.vector.y < -0.3;
+            keys['a'] = data.vector.x < -0.3;
+            keys['d'] = data.vector.x > 0.3;
+          }
+        });
+
+        manager.on('end', () => {
+          keys['w'] = false; keys['a'] = false; keys['s'] = false; keys['d'] = false;
+        });
+      }
+    }, 500);
+  }
+
   initThree();
   initSocket();
   animate();
@@ -107,9 +184,11 @@ function initThree() {
   activeCamera.position.set(10, 10, 10);
   activeCamera.lookAt(0, 0, 0);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new THREE.WebGLRenderer({ antialias: !isMobile.value });
+  renderer.setPixelRatio(isMobile.value ? 1.0 : Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = !isMobile.value; // Desabilita mapa de sombras inteiro no celular
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ReinhardToneMapping;
   renderer.toneMappingExposure = 1.2;
   container.value.appendChild(renderer.domElement);
@@ -142,14 +221,17 @@ function initThree() {
 function addYellowLight(x, y, z, intensity) {
   const light = new THREE.PointLight(0xffaa22, intensity, 15);
   light.position.set(x, y, z);
-  light.castShadow = true;
-  light.shadow.mapSize.width = 1024;
-  light.shadow.mapSize.height = 1024;
+  if (!isMobile.value) {
+    light.castShadow = true;
+    light.shadow.mapSize.width = 1024;
+    light.shadow.mapSize.height = 1024;
+  }
   scene.add(light);
 }
 
 function initSocket() {
   socket = io();
+  voiceChat = new VoiceChat(socket);
 
   socket.on('connect', () => {
     // Envia NOME e SKIN no join
@@ -164,7 +246,12 @@ function initSocket() {
   });
 
   socket.on('player_joined', (p) => {
-    if (p.id !== socket.id) addRemotePlayer(p);
+    if (p.id !== socket.id) {
+      addRemotePlayer(p);
+      if (inVoiceChat.value) {
+        voiceChat.connectToPeer(p.id);
+      }
+    }
   });
 
   socket.on('player_moved', (p) => {
@@ -183,6 +270,9 @@ function initSocket() {
     if (remotePlayers[id]) {
       scene.remove(remotePlayers[id].group);
       delete remotePlayers[id];
+    }
+    if (voiceChat) {
+      voiceChat.removePeer(id);
     }
   });
 
@@ -235,6 +325,10 @@ function onKeyDown(e) {
     toggleCamera();
     return;
   }
+  if (e.key.toLowerCase() === 'm') {
+    if (inVoiceChat.value) toggleVoiceMute();
+    return;
+  }
   keys[e.key.toLowerCase()] = true; 
 }
 function onKeyUp(e) { keys[e.key.toLowerCase()] = false; }
@@ -274,8 +368,18 @@ function animate() {
 .scene-container { width: 100%; height: 100%; }
 #ui { 
     position: absolute; top: 20px; left: 20px; color: #ddaa55; 
-    background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; border: 1px solid #555; 
-    pointer-events: auto; z-index: 10;
+    background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; border: 1px solid #555; 
+    pointer-events: auto; z-index: 100;
+}
+#menu-toggle-btn {
+  position: absolute; top: 20px; left: 20px; z-index: 90;
+  background: rgba(0,0,0,0.8); color: #ddaa55; border: 1px solid #555;
+  padding: 10px 15px; border-radius: 8px; font-weight: bold; font-family: 'Inter', sans-serif;
+  cursor: pointer;
+}
+#menu-overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  z-index: 95;
 }
 .cam-btn {
   margin-top: 10px; background: #ddaa55; color: #000; border: none; padding: 6px 10px;
@@ -303,26 +407,62 @@ function animate() {
 .chat-messages::-webkit-scrollbar { width: 6px; }
 .chat-messages::-webkit-scrollbar-thumb { background: #ddaa55; border-radius: 3px; }
 
+/* Mobile Chat Modal */
+#chat-container.mobile-active {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: 90% !important;
+  height: 60% !important;
+  max-width: 400px;
+  max-height: 400px;
+  z-index: 9999 !important;
+  background: rgba(15, 15, 15, 0.95) !important;
+  border: 2px solid #55aadd !important;
+}
+.chat-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px; border-bottom: 1px solid #444; color: #fff; font-weight: bold;
+}
+.chat-close-btn {
+  background: transparent; color: #ffaa55; border: 1px solid #ffaa55; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-family: 'Inter', sans-serif;
+}
+
 #mobile-controls {
   position: absolute; bottom: 20px; right: 20px; width: calc(100% - 400px); 
   display: flex; justify-content: space-between; align-items: flex-end;
   pointer-events: none; z-index: 20;
 }
-.dpad { pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.dpad-row { display: flex; gap: 8px; }
-.dpad-btn, .action-btn {
-  background: rgba(221, 170, 85, 0.6); border: 2px solid #ddaa55; color: #000;
-  font-weight: bold; border-radius: 8px; font-size: 18px; user-select: none;
-  touch-action: none;
-}
-.dpad-btn { width: 60px; height: 60px; }
-.dpad-btn:active, .action-btn:active { background: rgba(255, 204, 0, 0.9); }
-.action-btn-container { pointer-events: auto; }
-.action-btn { width: 80px; height: 80px; border-radius: 40px; }
+#joystick-wrapper { width: 140px; height: 140px; position: relative; pointer-events: auto; }
+#joystick-zone { width: 100%; height: 100%; position: absolute; pointer-events: auto; }
 
-@media (max-width: 768px) {
-  #chat-container { width: 250px; bottom: 100px; height: 150px; left: 10px; }
-  #mobile-controls { width: calc(100% - 20px); left: 10px; right: 10px; }
-  #ui { transform: scale(0.8); transform-origin: top left; }
+.action-btn-container { pointer-events: auto; }
+.action-btn { 
+  background: rgba(221, 170, 85, 0.6); border: 2px solid #ddaa55; color: #000;
+  font-weight: bold; font-size: 18px; user-select: none; touch-action: none;
+  width: 80px; height: 80px; border-radius: 40px; 
+}
+.action-btn:active { background: rgba(255, 204, 0, 0.9); }
+
+@media (max-width: 768px) and (orientation: portrait) {
+  #ui { transform: none; width: calc(100% - 40px); left: 20px; top: 20px; font-size: 13px; max-width: none; }
+  .cam-btn { margin-top: 5px; margin-right: 5px; display: inline-block; font-size: 12px; }
+  
+  #chat-container { 
+    top: 180px; left: 20px; width: calc(100% - 40px); height: 140px; bottom: auto; 
+  }
+  
+  #mobile-controls { width: calc(100% - 60px); left: 30px; bottom: 10vh; }
+  #joystick-wrapper { width: 120px; height: 120px; }
+  .action-btn { width: 70px; height: 70px; }
+}
+
+@media (max-width: 900px) and (orientation: landscape) {
+  #ui { transform: scale(0.85); transform-origin: top left; max-width: 50%; }
+  #chat-container { width: 260px; top: 20px; right: 20px; bottom: auto; left: auto; height: 160px; }
+  #mobile-controls { width: calc(100% - 60px); left: 30px; bottom: 10vh; }
+  #joystick-wrapper { width: 100px; height: 100px; }
+  .action-btn { width: 60px; height: 60px; }
 }
 </style>

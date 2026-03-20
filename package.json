@@ -10,8 +10,10 @@
     "server": "node server/index.js"
   },
   "dependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.2.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "nipplejs": "^0.10.2",
     "node-fetch": "^3.3.2",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",

@@ -10,43 +10,50 @@ export class World {
         this._build();
     }
 
-    _createWoodTexture() {
+    _createPosterTexture(title, bgColor) {
         const canvas = document.createElement('canvas');
-        canvas.width = 1024; canvas.height = 1024;
+        canvas.width = 512; canvas.height = 768;
         const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#b88a57'; // Base oak floor
-        ctx.fillRect(0, 0, 1024, 1024);
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0,0,512,768);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 55px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(title, 256, 120);
         
-        ctx.lineWidth = 4;
-        for (let i = 0; i < 1024; i += 64) {
-            // Draw plank lines
-            ctx.strokeStyle = '#8a6034';
-            ctx.beginPath();
-            ctx.moveTo(i, 0);
-            ctx.lineTo(i, 1024);
-            ctx.stroke();
-            
-            // Random horizontal cuts for planks
-            for(let j = 0; j < 6; j++) {
-                const y = Math.random() * 1024;
-                ctx.beginPath();
-                ctx.moveTo(i, y);
-                ctx.lineTo(i+64, y);
-                ctx.stroke();
-            }
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.beginPath(); ctx.arc(256, 400, 160, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffaa33';
+        ctx.beginPath(); ctx.arc(256, 400, 120, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#000000';
+        ctx.beginPath(); ctx.arc(256, 400, 60, 0, Math.PI * 2); ctx.fill();
 
-            // Draw slight grain variation
-            ctx.fillStyle = Math.random() > 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
-            ctx.fillRect(i, 0, 64, 1024);
-        }
-        const tex = new THREE.CanvasTexture(canvas);
-        tex.wrapS = THREE.RepeatWrapping;
-        tex.wrapT = THREE.RepeatWrapping;
-        tex.repeat.set(3, 3); // Scale planks over floor
-        return tex;
+        return new THREE.CanvasTexture(canvas);
     }
 
-    _createPosterTexture(title, bgColor) {
+    _build() {
+        // --- PC BUILDER PALETTE ---
+        const matWall = new THREE.MeshStandardMaterial({ color: 0x8ca3b5, roughness: 0.95 }); // Slate Blue
+        const matFloor = new THREE.MeshStandardMaterial({ color: 0xb88a57, roughness: 0.8 }); // Clean Solid Oak
+        const matBaseboard = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.8 });
+        const matBeam = new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.95 }); // Dark ceiling beam
+        
+        const matWorkbench = new THREE.MeshStandardMaterial({ color: 0xdab386, roughness: 0.7 }); // Light Oak Top
+        const matMetalLeg = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.6, roughness: 0.4 }); // Lighter grey metal legs
+        const matWardrobe = new THREE.MeshStandardMaterial({ color: 0xe0bf96, roughness: 0.8 }); // Light wood wardrobe
+        const matPCBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.8 });
+        const matPCWhite = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.2, metalness: 0.5 });
+        
+        // Simulating glass with BasicMaterial since Physical transmission needs complex environment setup
+        const matGlass = new THREE.MeshBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.2, depthWrite: false });
+        
+        const matGlowRed = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Basic material glows perfectly without lights
+        const matGlowBlue = new THREE.MeshBasicMaterial({ color: 0x0088ff });
+        const matScreen1 = new THREE.MeshBasicMaterial({ color: 0x224466 }); 
+        const matScreen2 = new THREE.MeshBasicMaterial({ color: 0x446644 }); 
+        const matPlant = new THREE.MeshStandardMaterial({ color: 0x3b6e3b, roughness: 0.8 });
+        const matPotCT = new THREE.MeshStandardMaterial({ color: 0x964b32 }); // Terracotta
+        const matBlinds = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9 }); 
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 768;
         const ctx = canvas.getContext('2d');
@@ -71,8 +78,7 @@ export class World {
     _build() {
         // --- PC BUILDER PALETTE ---
         const matWall = new THREE.MeshStandardMaterial({ color: 0x8ca3b5, roughness: 0.95 }); // Slate Blue
-        const woodTex = this._createWoodTexture();
-        const matFloor = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.7 }); 
+        const matFloor = new THREE.MeshStandardMaterial({ color: 0xb88a57, roughness: 0.8 }); // Clean Solid Oak
         const matBaseboard = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.8 });
         const matBeam = new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.95 }); // Dark ceiling beam
         
@@ -81,7 +87,7 @@ export class World {
         const matWardrobe = new THREE.MeshStandardMaterial({ color: 0xe0bf96, roughness: 0.8 }); // Light wood wardrobe
         const matPCBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.8 });
         const matPCWhite = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.2, metalness: 0.5 });
-        const matGlass = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transmission: 0.9, opacity: 0.3, transparent: true, roughness: 0.1 });
+        const matGlass = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.3, roughness: 0.1 });
         const matGlowRed = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2.0 });
         const matGlowBlue = new THREE.MeshStandardMaterial({ color: 0x0088ff, emissive: 0x0088ff, emissiveIntensity: 2.0 });
         const matScreen1 = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0x224466, emissiveIntensity: 0.8 }); 
@@ -98,28 +104,34 @@ export class World {
         // Room Dimensions: Expanded to 14x14
         this._addBox(14, 0.1, 14, 0, 0, 0, matFloor, false);
         
+        // Ceiling Roof (To close the room and bounce light)
+        this.ceiling = this._addBox(14, 0.2, 14, 0, 5.1, 0, matWall, false);
+        
         // Walls
         this._addBox(14, 5, 0.2, 0, 2.5, -7, matWall);
         this._addBox(0.2, 5, 14, -7, 2.5, 0, matWall);
-        this._addBox(14, 5, 0.2, 0, 2.5, 7, null, true, true); // Invisible boundary
-        this._addBox(0.2, 5, 14, 7, 2.5, 0, null, true, true); // Invisible boundary
+        this.wallFront = this._addBox(14, 5, 0.2, 0, 2.5, 7, matWall, true, false); // Invisible boundary becomes visible wall
+        this.wallRight = this._addBox(0.2, 5, 14, 7, 2.5, 0, matWall, true, false); // Invisible boundary becomes visible wall
 
         // Baseboards
         this._addBox(13.8, 0.2, 0.1, 0.1, 0.1, -6.85, matBaseboard, false);
         this._addBox(0.1, 0.2, 13.8, -6.85, 0.1, 0.1, matBaseboard, false);
 
         // Ceiling Beams
-        this._addBox(14, 0.4, 0.4, 0, 5.0, -4, matBeam, false);
-        this._addBox(14, 0.4, 0.4, 0, 5.0, 0, matBeam, false);
-        this._addBox(14, 0.4, 0.4, 0, 5.0, 4, matBeam, false);
+        this.beams = [];
+        this.beams.push(this._addBox(14, 0.4, 0.4, 0, 5.0, -4, matBeam, false));
+        this.beams.push(this._addBox(14, 0.4, 0.4, 0, 5.0, 0, matBeam, false));
+        this.beams.push(this._addBox(14, 0.4, 0.4, 0, 5.0, 4, matBeam, false));
 
         // Ceiling Lights (Flush mounts between beams)
         const matCeilLight = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        this.ceilLights = [];
         for(let z of [-2, 2]) {
             for(let x of [-4, 0, 4]) {
                 const ceilLight = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16), matCeilLight);
                 ceilLight.position.set(x, 4.95, z);
                 this.scene.add(ceilLight);
+                this.ceilLights.push(ceilLight);
             }
         }
 
@@ -177,20 +189,31 @@ export class World {
 
         // Tall Floor Plant (Dracaena)
         this._addFloorPlant(6.0, 0.0, -4.5, matPotCT, matPlant);
+
+        // Default to isometric state (ceiling and front walls hidden)
+        this.setFirstPersonMode(false);
+    }
+
+    setFirstPersonMode(isFP) {
+        if(this.ceiling) this.ceiling.visible = isFP;
+        if(this.wallFront) this.wallFront.visible = isFP;
+        if(this.wallRight) this.wallRight.visible = isFP;
+        if(this.beams) this.beams.forEach(b => b.visible = isFP);
+        if(this.ceilLights) this.ceilLights.forEach(l => l.visible = isFP);
     }
 
     _addWorkbench(x, y, z, w, d, isVertical, matTop, matLeg) {
         this._addBox(w, 0.1, d, x, y, z, matTop);
-        const lg = new THREE.BoxGeometry(0.1, y, 0.1);
+        const lg = new THREE.BoxGeometry(0.15, y, 0.15); // Thicker metal legs
         const l1 = new THREE.Mesh(lg, matLeg);
         const l2 = new THREE.Mesh(lg, matLeg);
         const l3 = new THREE.Mesh(lg, matLeg);
         const l4 = new THREE.Mesh(lg, matLeg);
         
-        l1.position.set(x - w/2 + 0.1, y/2, z - d/2 + 0.1);
-        l2.position.set(x + w/2 - 0.1, y/2, z - d/2 + 0.1);
-        l3.position.set(x - w/2 + 0.1, y/2, z + d/2 - 0.1);
-        l4.position.set(x + w/2 - 0.1, y/2, z + d/2 - 0.1);
+        l1.position.set(x - w/2 + 0.15, y/2, z - d/2 + 0.15);
+        l2.position.set(x + w/2 - 0.15, y/2, z - d/2 + 0.15);
+        l3.position.set(x - w/2 + 0.15, y/2, z + d/2 - 0.15);
+        l4.position.set(x + w/2 - 0.15, y/2, z + d/2 - 0.15);
         
         l1.castShadow=true; l2.castShadow=true; l3.castShadow=true; l4.castShadow=true;
         this.scene.add(l1,l2,l3,l4);
@@ -219,19 +242,19 @@ export class World {
         const tw = 0.4; const th = 0.8; const td = 0.8; 
         const body = this._addBox(isVertical?tw:td, th, isVertical?td:tw, x, y + th/2, z, matCase);
         
-        // Add Glass and Internals if aligned
+        // Glass Panel
         const glass = new THREE.Mesh(new THREE.BoxGeometry(isVertical?0.02:td-0.1, th-0.1, isVertical?td-0.1:0.02), matGlass);
         glass.position.set(x + (isVertical?tw/2:0), y + th/2, z + (isVertical?0:tw/2)); // Place on front side
         this.scene.add(glass);
 
-        // Internal Glow (Cooler/GPU)
+        // Internal Glow Cube
         const glow = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), matGlow);
         glow.position.set(x, y + th/2, z);
         this.scene.add(glow);
 
-        // Simple PointLight inside the PC case!
-        const pl = new THREE.PointLight(matGlow.color, 0.8, 1.5);
-        pl.position.set(x, y + th/2, z);
+        // Add PointLight to tint the glass and area around the PC
+        const pl = new THREE.PointLight(matGlow.color, 2.0, 3.0);
+        pl.position.set(x + (isVertical?tw/2 + 0.2:0), y + th/2, z + (isVertical?0:tw/2 + 0.2));
         this.scene.add(pl);
     }
 
