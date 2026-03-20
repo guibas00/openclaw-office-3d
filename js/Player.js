@@ -40,6 +40,22 @@ export class Player {
         this.legR = this._createLimb(0.2, 0.7, 0.2, 0.15, 0.8, matSkin);
         this.armL = this._createLimb(0.15, 0.6, 0.15, -0.35, 1.4, matSkin);
         this.armR = this._createLimb(0.15, 0.6, 0.15, 0.35, 1.4, matSkin);
+
+        // Name Tag (KozyAgent)
+        const canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0,0,256,64);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '40px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('KozyAgent', 128, 45);
+        const tex = new THREE.CanvasTexture(canvas);
+        const tag = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.25), new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
+        tag.position.y = 2.0;
+        this.group.add(tag);
+        this.tag = tag;
     }
 
     _createLimb(w, h, d, x, y, mat) {
