@@ -1,11 +1,11 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import fetch from 'node-fetch';
-import dotenv from 'dotenv';
-import { env } from 'process';
-
-dotenv.config();
+import fileUpload from 'express-fileupload';
+import fs from 'fs';
+import path from 'path';
+import fetch from 'node-fetch'; // Para as requisições à IA
+import { NpcBrainOpenclawGateway } from './NpcBrainOpenclawGateway.js';
 
 const app = express();
 const server = createServer(app);
@@ -19,11 +19,14 @@ const roomData = {}; // Stores { tvUrl: string } per room
 let npcState = {
     pos: { x: 5, y: 0, z: -5 },
     rot: 0,
-    commands: { forward: false, backward: false, left: false, right: false, jump: false },
-    status: "Ocioso"
+    commands: { forward: false, backward: false, left: false, right: false, jump: false } // Ações atuais
 };
 
-const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
+// Global Array to hold OpenClaw Logs securely across Rooms. (We'll mostly keep them broadcasted live, but buffering 100 for newly joined clients)
+const openClawLogs = [];
+
+// === NPC AI Brain (Antiga OpenAI, Agora Desabilitada em Favor do OpenClaw) ===
+let isProcessingBrain = false;
 
 async function runNPCBrain() {
     try {
@@ -92,6 +95,53 @@ async function runNPCBrain() {
 
 // (Removido daqui e movido para dentro do server.listen)
 
+// Inicializando o Gateway do OpenClaw!
+// Conectamos passivamente à porta do OpenClaw (localhost:18789). Quando o OpenClaw "acorda"
+// a gente arrasta o NPC (npcState) para as coordenadas da cadeira do PC e envia os logs para o frontend.
+const gateway = new NpcBrainOpenclawGateway({
+    onTaskStart: (msg) => {
+        const taskInfo = msg.task || msg.message || 'Nova Tarefa no OpenClaw';
+        console.log(`🤖 OpenClaw NPC Iniciando Tarefa:`, taskInfo);
+        
+        // Envia comando para o NPC caminhar até a cadeira
+        npcState.status = "Operando Computador";
+        io.emit('npc_status', npcState.status);
+        io.emit('npc_target', { x: -4.8, z: -2.0 });
+
+        const logMsg = { time: new Date().toLocaleTimeString(), text: `🚀 TAREFA INICIADA: ${taskInfo}` };
+        openClawLogs.push(logMsg);
+        if(openClawLogs.length > 50) openClawLogs.shift();
+        io.emit('openclaw_log', logMsg);
+    },
+    onTaskLog: (msg) => {
+        const content = msg.message || msg.output || msg.tool || msg.text || JSON.stringify(msg);
+        console.log(`📜 OpenClaw NPC Log:`, content);
+        
+        if (npcState.status !== "Operando Computador") {
+             npcState.status = "Operando Computador";
+             io.emit('npc_status', npcState.status);
+             io.emit('npc_target', { x: -4.8, z: -2.0 });
+        }
+        
+        const logMsg = { time: new Date().toLocaleTimeString(), text: content };
+        openClawLogs.push(logMsg);
+        if(openClawLogs.length > 50) openClawLogs.shift(); // Keep only last 50
+        io.emit('openclaw_log', logMsg);
+    },
+    onTaskEnd: (msg) => {
+        console.log(`🏁 OpenClaw NPC Terminou Tarefa`);
+        npcState.status = "Tarefa Finalizada";
+        io.emit('npc_status', npcState.status);
+        
+        const logMsg = { time: new Date().toLocaleTimeString(), text: `✅ TAREFA FINALIZADA.` };
+        openClawLogs.push(logMsg);
+        if(openClawLogs.length > 50) openClawLogs.shift();
+        io.emit('openclaw_log', logMsg);
+
+        // O NPC pode levantar ou apenas aguardar a próxima.
+    }
+});
+
 io.on('connection', (socket) => {
     socket.on('join', (userData) => {
         const room = userData.room || 'public';
@@ -115,7 +165,9 @@ io.on('connection', (socket) => {
             players: roomPlayers, 
             npcState,
             tvUrl: roomData[room] ? roomData[room].tvUrl : '',
-            tvStartTime: roomData[room] ? roomData[room].tvStartTime : null
+            tvStartTime: roomData[room] ? roomData[room].tvStartTime : null,
+            tvQueue: roomData[room] ? (roomData[room].tvQueue || []) : [],
+            openClawLogs: openClawLogs // Dá a visão de log atual pra quem acaba de entrar!
         });
         socket.to(room).emit('player_joined', players[socket.id]);
     });
@@ -148,7 +200,9 @@ io.on('connection', (socket) => {
             players: roomPlayers, 
             npcState,
             tvUrl: roomData[newRoom] ? roomData[newRoom].tvUrl : '',
-            tvStartTime: roomData[newRoom] ? roomData[newRoom].tvStartTime : null
+            tvStartTime: roomData[newRoom] ? roomData[newRoom].tvStartTime : null,
+            tvQueue: roomData[newRoom] ? (roomData[newRoom].tvQueue || []) : [],
+            openClawLogs: openClawLogs
         });
         socket.to(newRoom).emit('player_joined', players[socket.id]);
     });
@@ -156,10 +210,49 @@ io.on('connection', (socket) => {
     socket.on('change_video', (url) => {
         if (!players[socket.id]) return;
         const room = players[socket.id].room;
-        if (!roomData[room]) roomData[room] = {};
+        if (!roomData[room]) roomData[room] = { tvQueue: [] };
         roomData[room].tvUrl = url;
         roomData[room].tvStartTime = Date.now();
         io.to(room).emit('change_video', { url, tvStartTime: roomData[room].tvStartTime });
+    });
+
+    socket.on('tv_add_queue', (url) => {
+        if (!players[socket.id]) return;
+        const room = players[socket.id].room;
+        if (!roomData[room]) roomData[room] = { tvQueue: [] };
+        if (!roomData[room].tvQueue) roomData[room].tvQueue = [];
+        
+        roomData[room].tvQueue.push(url);
+        io.to(room).emit('tv_queue_update', roomData[room].tvQueue);
+
+        // Se a TV estava vazia, toca isso agora mesmo
+        if (!roomData[room].tvUrl) {
+            roomData[room].tvUrl = url;
+            roomData[room].tvStartTime = Date.now();
+            io.to(room).emit('change_video', { url, tvStartTime: roomData[room].tvStartTime });
+        }
+    });
+
+    socket.on('tv_skip', () => {
+        if (!players[socket.id]) return;
+        const room = players[socket.id].room;
+        if (roomData[room] && roomData[room].tvQueue && roomData[room].tvQueue.length > 0) {
+            const finishedUrl = roomData[room].tvQueue.shift(); // Remove a que terminou/foi pulada
+            io.to(room).emit('tv_queue_update', roomData[room].tvQueue);
+            
+            if (roomData[room].tvQueue.length > 0) {
+                // Toca a próxima
+                const nextUrl = roomData[room].tvQueue[0];
+                roomData[room].tvUrl = nextUrl;
+                roomData[room].tvStartTime = Date.now();
+                io.to(room).emit('change_video', { url: nextUrl, tvStartTime: roomData[room].tvStartTime });
+            } else {
+                // Fila acabou
+                roomData[room].tvUrl = '';
+                roomData[room].tvStartTime = null;
+                io.to(room).emit('change_video', null); // frontend will clear the iframe or stop 
+            }
+        }
     });
 
     socket.on('chat_message', (msg) => {

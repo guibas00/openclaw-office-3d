@@ -150,7 +150,7 @@ export class World {
 
         // Workstation 1 (Left desk) Setup
         this._addPCTower(-6.2, 1.3, 0.0, matPCBlack, matGlass, matGlowRed, true);
-        this._addMonitor(-6.3, 1.3, -2.0, matPCBlack, matScreen1, true);
+        this._addMonitor(-6.3, 1.3, -2.0, matPCBlack, matScreen1, true, true);
         this._addKeyboardMouse(-5.8, 1.02, -2.0, matPCBlack, true);
         this._addBarStool(-4.8, 0.6, -2.0, matWorkbench, matMetalLeg);
 
@@ -266,12 +266,15 @@ export class World {
         this.scene.add(pl);
     }
 
-    _addMonitor(x, y, z, matCase, matScreen, isVertical) {
+    _addMonitor(x, y, z, matCase, matScreen, isVertical, isPC1 = false) {
         const mw = 1.0; const mh = 0.6; const md = 0.05;
         this._addBox(isVertical?md:mw, mh, isVertical?mw:md, x, y+0.4, z, matCase); // Bezel
-        this._addBox(isVertical?md+0.01:mw-0.05, mh-0.05, isVertical?mw-0.05:md+0.01, x, y+0.4, z, matScreen, false); // Display
+        const screen = this._addBox(isVertical?md+0.01:mw-0.05, mh-0.05, isVertical?mw-0.05:md+0.01, x, y+0.4, z, matScreen, false); // Display
         this._addBox(0.1, 0.3, 0.1, x + (isVertical?0.1:0), y+0.15, z + (isVertical?0:0.1), matCase, false); // Stand
         this._addBox(0.3, 0.05, 0.3, x + (isVertical?0.1:0), y+0.02, z + (isVertical?0:0.1), matCase, false); // Base
+        if (isPC1) {
+            this.pcScreenMesh = screen;
+        }
     }
 
     _addKeyboardMouse(x, y, z, matCase, isVertical) {

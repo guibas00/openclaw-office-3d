@@ -15,14 +15,10 @@
           <button v-if="roomCode !== 'public'" @click="copyRoom" class="copy-btn">📋 Copiar</button>
           <button @click="changeRoomDialog" class="copy-btn" style="background: #3388aa">🔄 Trocar</button>
         </div>
-        
-        <div class="room-box" style="margin-top: 5px;">
-          <strong>📺 TV: </strong>
-          <div style="display: flex; gap: 5px; margin-top: 5px;">
-             <input v-model="tvVideoUrl" placeholder="Link do YouTube..." style="width: 140px; background:#222; color:#fff; border:1px solid #444; border-radius:4px; padding: 4px;" @keydown.enter="requestVideoChange" />
-             <button @click="requestVideoChange" class="copy-btn" style="margin-left: 0; background: #c4302b">▶️ Tocar</button>
-          </div>
-        </div>
+
+        <button v-if="isNearTv" @click="showTvMenu = true" class="cam-btn" style="background: #c4302b; color: #fff; margin-top: 10px; width: 100%;">
+          📺 Acessar TV [E]
+        </button>
 
         <button @click="toggleCamera" class="cam-btn">
           Câmera: {{ isFirstPerson ? '1ª Pessoa' : 'Isométrica' }} (V)
@@ -67,6 +63,57 @@
         <button @touchstart.prevent="keys[' ']=true" @touchend.prevent="keys[' ']=false" class="action-btn">PULAR</button>
       </div>
     </div>
+
+    <!-- TV Playlist Modal -->
+    <div id="tv-modal" v-if="showTvMenu">
+      <div class="tv-modal-content">
+        <div class="tv-header">
+          <h3 style="margin: 0;">📺 Playlist da TV</h3>
+          <button @click="showTvMenu = false" class="chat-close-btn" style="background:transparent; border:1px solid #ffaa55;">X</button>
+        </div>
+        <div class="tv-body">
+          <div style="display: flex; gap: 5px; margin-bottom: 15px;">
+            <input v-model="tvVideoUrl" placeholder="Link do YouTube..." class="chat-input" style="flex: 1; border-radius: 4px;" @keydown.enter="requestVideoAdd" />
+            <button @click="requestVideoAdd" class="cam-btn" style="margin: 0; background: #55aadd; color: #fff;">Adicionar</button>
+          </div>
+          
+          <h4 style="margin-top: 0;">Fila de Reprodução:</h4>
+          <ul class="tv-queue">
+            <li v-if="tvCurrentUrl" class="active-video">
+              ▶️ <strong>Atual:</strong> {{ tvCurrentUrl }}
+            </li>
+            <li v-for="(url, idx) in tvQueue" :key="idx">
+              {{ idx + 1 }}. {{ url }}
+            </li>
+            <li v-if="!tvCurrentUrl && tvQueue.length === 0" style="color: #888;">Fila vazia... O que vamos assistir?</li>
+          </ul>
+          
+          <br>
+          <button v-if="tvCurrentUrl || tvQueue.length > 0" @click="skipVideo" class="cam-btn" style="margin:0; background:#c4302b; color:#fff; width:100%;">Pular / Tocar Próximo ⏭️</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Proximity Prompt PC -->
+    <div v-if="isNearPc && !showPcMenu && !showTvMenu && !isMobile" id="proximity-prompt">
+      [E] Terminal OpenClaw
+    </div>
+    
+    <!-- OpenClaw PC Terminal Modal -->
+    <div id="pc-modal" v-if="showPcMenu">
+      <div class="pc-modal-content">
+        <div class="pc-header">
+          <h3 style="margin: 0; color: #0f0; font-family: monospace;">> OPENCLAW_GATEWAY</h3>
+          <button @click="showPcMenu = false" class="chat-close-btn" style="background:#0f0; color:#000; font-weight:bold;">X</button>
+        </div>
+        <div class="pc-body" ref="pcLogsRef">
+          <div v-for="(log, idx) in openclawLogs" :key="idx" class="pc-log-line">
+            <span class="pc-log-time">[{{ log.time }}]</span> <span class="pc-log-text">{{ log.text }}</span>
+          </div>
+          <div v-if="openclawLogs.length === 0" style="color: #060; font-family: monospace;">Aguardando conexões do Agente na porta 18789...</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -87,6 +134,15 @@ const container = ref(null);
 const npcLocalStatus = ref('Ocioso');
 const tvVideoUrl = ref('');
 const tvId = ref('');
+const tvCurrentUrl = ref('');
+const tvQueue = ref([]);
+const showTvMenu = ref(false);
+const isNearTv = ref(false);
+
+const openclawLogs = ref([]);
+const isNearPc = ref(false);
+const showPcMenu = ref(false);
+const pcLogsRef = ref(null);
 
 const chatMessages = ref([]);
 const chatInput = ref('');
@@ -205,23 +261,60 @@ onMounted(() => {
   animate();
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('click', onGlobalClick);
 });
 
 onUnmounted(() => {
   if (socket) socket.disconnect();
   window.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('keyup', onKeyUp);
+  window.removeEventListener('click', onGlobalClick);
 });
 
-function requestVideoChange() {
+function onGlobalClick(e) {
+  if (showTvMenu.value || showPcMenu.value || isMobile.value) return; 
+  if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('#ui')) return;
+  
+  const mouse = new THREE.Vector2();
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse, activeCamera);
+  
+  if (world && world.tvScreenMesh) {
+    const intersectsTv = raycaster.intersectObject(world.tvScreenMesh);
+    if (intersectsTv.length > 0) {
+      if (isNearTv.value) showTvMenu.value = true;
+      else alert("Aproxime-se da TV para interagir!");
+      return;
+    }
+  }
+
+  if (world && world.pcScreenMesh) {
+    const intersectsPc = raycaster.intersectObject(world.pcScreenMesh);
+    if (intersectsPc.length > 0) {
+      if (isNearPc.value) showPcMenu.value = true;
+      else alert("Aproxime-se do PC da Esquerda para acessar o Terminal OpenClaw!");
+    }
+  }
+}
+
+function requestVideoAdd() {
   const url = tvVideoUrl.value.trim();
   if (url && socket) {
     if (extractYouTubeId(url) === null) {
       alert("❌ Link do YouTube inválido! Formato ex: https://www.youtube.com/watch?v=...");
       return;
     }
-    socket.emit('change_video', url);
+    socket.emit('tv_add_queue', url);
     tvVideoUrl.value = '';
+  }
+}
+
+function skipVideo() {
+  if (socket) {
+    socket.emit('tv_skip');
   }
 }
 
@@ -362,7 +455,7 @@ function initThree() {
   fpCamera.rotation.y = Math.PI; // Look forward (+Z is forward mapping in Player, rotate 180 deg to face it)
   player.group.add(fpCamera);
 
-  // npc = new NPC(scene, null, 'Assistant');
+  npc = new NPC(scene, null, 'OpenClaw');
 
 }
 
@@ -407,12 +500,20 @@ function initSocket() {
       }
     }
     
+    tvCurrentUrl.value = state.tvUrl || '';
+    tvQueue.value = state.tvQueue || [];
+    openclawLogs.value = state.openClawLogs || [];
+    
     if (state.tvUrl) {
       const elapsed = state.tvStartTime ? Math.floor((Date.now() - state.tvStartTime) / 1000) : 0;
       changeLocalVideo({ url: state.tvUrl, elapsed });
     } else {
       setupTV('jfKfPfyJRdk', 0); // Default video
     }
+  });
+
+  socket.on('tv_queue_update', (queue) => {
+    tvQueue.value = queue;
   });
 
   socket.on('player_joined', (p) => {
@@ -453,14 +554,46 @@ function initSocket() {
   socket.on('npc_update', (state) => {
     npcLocalStatus.value = state.status;
     if (npc) {
-      npc.updateState(state.pos, state.rot, state.commands);
+      if(state.pos && npc.group) {
+          npc.group.position.set(state.pos.x, state.pos.y, state.pos.z);
+          npc.group.rotation.y = state.rot;
+      }
+      if(state.commands) {
+          npc.currentCommands = state.commands;
+      }
+    }
+  });
+
+  socket.on('npc_target', (target) => {
+    if (npc) {
+      npc.walkTo(target.x, target.z);
     }
   });
 
   socket.on('change_video', (data) => {
+    if (!data) {
+       tvCurrentUrl.value = '';
+       tvId.value = '';
+       tvQueue.value = [];
+       if (tvIframeObj) { // clear screen or play ad
+          setupTV('jfKfPfyJRdk', 0);
+       }
+       return;
+    }
     const url = typeof data === 'string' ? data : data.url;
     const elapsed = data.tvStartTime ? Math.floor((Date.now() - data.tvStartTime) / 1000) : 0;
+    tvCurrentUrl.value = url;
     changeLocalVideo({ url, elapsed });
+  });
+
+  socket.on('openclaw_log', (log) => {
+    openclawLogs.value.push(log);
+    if (openclawLogs.value.length > 100) openclawLogs.value.shift();
+    setTimeout(() => {
+      if (pcLogsRef.value) {
+        pcLogsRef.value.scrollTop = pcLogsRef.value.scrollHeight;
+      }
+    }, 50);
   });
 
   socket.on('chat_message', (msg) => {
@@ -501,6 +634,18 @@ function addRemotePlayer(p) {
 
 function onKeyDown(e) { 
   if (isChatFocused.value) return; 
+  if (e.key.toLowerCase() === 'e') {
+    if (isNearTv.value && !showTvMenu.value && !showPcMenu.value) {
+      showTvMenu.value = true;
+      keys['w'] = false; keys['a'] = false; keys['s'] = false; keys['d'] = false;
+      return;
+    }
+    if (isNearPc.value && !showPcMenu.value && !showTvMenu.value) {
+      showPcMenu.value = true;
+      keys['w'] = false; keys['a'] = false; keys['s'] = false; keys['d'] = false;
+      return;
+    }
+  }
   if (e.key.toLowerCase() === 'v') {
     toggleCamera();
     return;
@@ -520,6 +665,10 @@ function animate() {
 
   if (player) {
     player.update(delta, keys, world.obstacles);
+    if (world) {
+      if (world.tvScreenMesh) isNearTv.value = player.group.position.distanceTo(world.tvScreenMesh.position) < 2.5;
+      if (world.pcScreenMesh) isNearPc.value = player.group.position.distanceTo(world.pcScreenMesh.position) < 2.5;
+    }
     socket.emit('move', {
       pos: player.group.position,
       rot: player.group.rotation.y
@@ -537,8 +686,8 @@ function animate() {
     remote.update(delta, {}, world.obstacles, remote._isMoving);
   });
 
-  if (npc && npc.currentCommands) {
-    npc.update(delta, npc.currentCommands, world.obstacles);
+  if (npc) {
+    npc.update(delta, npc.currentCommands || {}, world.obstacles);
   }
 
   renderer.render(scene, activeCamera);
@@ -650,5 +799,67 @@ function animate() {
   #mobile-controls { width: calc(100% - 60px); left: 30px; bottom: 10vh; }
   #joystick-wrapper { width: 100px; height: 100px; }
   .action-btn { width: 60px; height: 60px; }
+}
+
+#tv-modal {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.8); z-index: 1000;
+  display: flex; justify-content: center; align-items: center; font-family: 'Inter', sans-serif;
+}
+.tv-modal-content {
+  background: #1a1a1a; border: 2px solid #55aadd; width: 400px;
+  border-radius: 8px; color: #fff; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+}
+.tv-header {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #2a2a2a; padding: 15px; border-bottom: 2px solid #333;
+}
+.tv-body {
+  padding: 15px; max-height: 400px; overflow-y: auto;
+}
+.tv-queue {
+  list-style: none; padding: 0; margin: 0 0 15px 0; background: #111; border: 1px solid #333; border-radius: 4px; padding: 10px;
+}
+.tv-queue li {
+  padding: 5px 0; border-bottom: 1px dotted #333; font-size: 13px; color: #ccc;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tv-queue li:last-child { border-bottom: none; }
+.active-video { color: #55aadd !important; }
+.tv-btn {
+  padding: 10px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; transition: 0.2s;
+}
+.tv-btn:hover { filter: brightness(1.2); }
+#proximity-prompt {
+  position: absolute; bottom: 20%; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.8); color: #fff; padding: 10px 20px;
+  border: 1px solid #c4302b; border-radius: 6px; font-family: 'Inter', sans-serif; 
+  font-weight: bold; z-index: 500; font-size: 18px; pointer-events: none;
+}
+
+#pc-modal {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0, 10, 0, 0.85); z-index: 1000;
+  display: flex; justify-content: center; align-items: center; font-family: 'Courier New', Courier, monospace;
+}
+.pc-modal-content {
+  background: #000; border: 2px solid #0f0; width: 600px;
+  border-radius: 4px; color: #0f0; overflow: hidden; box-shadow: 0 0 30px rgba(0,255,0,0.3);
+}
+.pc-header {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #020; padding: 15px; border-bottom: 2px solid #0f0;
+}
+.pc-body {
+  padding: 15px; height: 350px; overflow-y: auto; background: #000; word-wrap: break-word;
+}
+.pc-log-line {
+  margin-bottom: 8px; font-size: 13px; line-height: 1.4;
+}
+.pc-log-time {
+  color: #080; margin-right: 5px;
+}
+.pc-log-text {
+  color: #0f0;
 }
 </style>
