@@ -105,7 +105,11 @@ export class Player {
 
         if (this.group.position.y <= 0) { this.group.position.y = 0; this.velocityY = 0; this.isGrounded = true; }
 
-        this.box.setFromObject(this.group);
+        // Escaneia exclusivamente a matriz da torço do jogador (largura 0.6, altura 1.8), ignorando nomes flutuantes ou balões giga!
+        const hitCenter = new THREE.Vector3(this.group.position.x, this.group.position.y + 0.9, this.group.position.z);
+        const hitSize = new THREE.Vector3(0.6, 1.8, 0.6);
+        this.box.setFromCenterAndSize(hitCenter, hitSize);
+        
         for (let obs of obstacles) {
             if (this.box.intersectsBox(obs)) {
                 this.group.position.x = oldPos.x;

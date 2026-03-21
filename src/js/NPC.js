@@ -17,6 +17,7 @@ export class NPC {
         this.jumpForce = 12;
         this.gravity = -30;
         this.group.position.set(5, 0, -5);
+        this.targetPos = null;
     }
 
     _build() {
@@ -67,30 +68,70 @@ export class NPC {
         return group;
     }
 
-    update(delta, cmd, obstacles) {
-        const speed = 7 * delta; 
+    walkTo(x, z) {
+        this.targetPos = new THREE.Vector3(x, this.group.position.y, z);
+    }
+
+    update(delta, cmd = {}, obstacles) {
+        const speed = 4 * delta; 
         const rotateSpeed = 4 * delta;
         const oldPos = this.group.position.clone();
         let isMoving = false;
 
-        if (cmd.forward) { this.group.translateZ(speed); isMoving = true; }
-        if (cmd.backward) { this.group.translateZ(-speed); isMoving = true; }
-        if (cmd.left) this.group.rotation.y += rotateSpeed;
-        if (cmd.right) this.group.rotation.y -= rotateSpeed;
+        // Controle Autônomo para o PC
+        if (this.targetPos) {
+            const tempTarget = new THREE.Vector3(this.targetPos.x, this.group.position.y, this.targetPos.z);
+            const dist = this.group.position.distanceTo(tempTarget);
+            
+            if (dist > 0.1) {
+                // Rotaciona suavemente para o alvo
+                const targetRotation = Math.atan2(tempTarget.x - this.group.position.x, tempTarget.z - this.group.position.z);
+                this.group.rotation.y = targetRotation;
+                this.group.translateZ(speed);
+                isMoving = true;
+            } else {
+                this.group.position.set(tempTarget.x, this.group.position.y, tempTarget.z);
+                this.group.rotation.y = Math.PI / 2; // Vira para o Monitor
+                this.targetPos = null;
+            }
+        } else {
+            // Controle Manual/Servidor via Comandos
+            if (cmd.forward) { this.group.translateZ(speed); isMoving = true; }
+            if (cmd.backward) { this.group.translateZ(-speed); isMoving = true; }
+            if (cmd.left) this.group.rotation.y += rotateSpeed;
+            if (cmd.right) this.group.rotation.y -= rotateSpeed;
+        }
 
         if (cmd.jump && this.isGrounded) { this.velocityY = this.jumpForce; this.isGrounded = false; }
         this.velocityY += this.gravity * delta;
         this.group.position.y += this.velocityY * delta;
         if (this.group.position.y <= 0) { this.group.position.y = 0; this.velocityY = 0; this.isGrounded = true; }
 
-        this.box.setFromObject(this.group);
+        const hitCenter = new THREE.Vector3(this.group.position.x, this.group.position.y + 0.9, this.group.position.z);
+        const hitSize = new THREE.Vector3(0.6, 1.8, 0.6);
+        this.box.setFromCenterAndSize(hitCenter, hitSize);
+        
         for (let obs of obstacles) {
             if (this.box.intersectsBox(obs)) {
                 this.group.position.x = oldPos.x;
                 this.group.position.z = oldPos.z;
+                
+                // Sistema Anti-Agarramento: Se o NPC bater a cara numa mesa ou PC durante roteamento autônomo,
+                // ele empacará. Contamos 30 frames (meio segundo) tentando; se falhar, efetuamos um teletransporte forçado.
+                if (this.targetPos) {
+                    this.stuckFrames = (this.stuckFrames || 0) + 1;
+                    if (this.stuckFrames > 30) {
+                        this.group.position.set(this.targetPos.x, this.group.position.y, this.targetPos.z);
+                        this.group.rotation.y = Math.PI / 2; // Virado para a Direita/Hardware
+                        this.targetPos = null;
+                        this.stuckFrames = 0;
+                    }
+                }
                 break;
             }
         }
+        
+        if (!this.targetPos) this.stuckFrames = 0;
 
         if (isMoving && this.isGrounded) {
             this.walkTime += delta * 14;
