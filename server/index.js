@@ -14,6 +14,8 @@ const io = new Server(server, {
 });
 
 const players = {};
+const roomData = {}; // Stores { tvUrl: string } per room
+
 let npcState = {
     pos: { x: 5, y: 0, z: -5 },
     rot: 0,
@@ -49,14 +51,17 @@ async function runNPCBrain() {
 
         const data = await response.json();
         console.log("NPC Brain API Response received");
-
-        if (!data.choices || !data.choices[0]) {
-            console.error("Erro na resposta da API:", data);
-            throw new Error("Resposta da API inválida");
+        
+        if (!response.ok || !data.choices || !data.choices[0]) {
+            console.error("Erro na resposta da API do NPC:", data);
+            npcState.status = "Ocioso (Erro na API)";
+            io.emit('npc_status', npcState.status);
+            setTimeout(runNPCBrain, 15000); // Retry later
+            return;
         }
 
-        const content = data.choices[0].message.content;
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        const reply = data.choices[0].message.content.trim();
+        const jsonMatch = reply.match(/\{[\s\S]*\}/);
 
         if (jsonMatch) {
             const result = JSON.parse(jsonMatch[0]);
@@ -81,7 +86,7 @@ async function runNPCBrain() {
     } finally {
         npcState.status = "Ocioso";
         io.emit('npc_status', npcState.status);
-        setTimeout(runNPCBrain, 10000);
+        // setTimeout(runNPCBrain, 10000); // DESABILITADO TEMPORARIAMENTE
     }
 }
 
@@ -89,32 +94,86 @@ async function runNPCBrain() {
 
 io.on('connection', (socket) => {
     socket.on('join', (userData) => {
+        const room = userData.room || 'public';
+        socket.join(room);
+        
         players[socket.id] = {
             id: socket.id,
             name: userData.name || "Anon",
             skin: userData.skin, // Novo: Armazena a cor da skin
+            room: room,
             pos: { x: 0, y: 0, z: 0 },
             rot: 0
         };
-        socket.emit('init_state', { players, npcState });
-        socket.broadcast.emit('player_joined', players[socket.id]);
+        
+        const roomPlayers = {};
+        for(let id in players) {
+            if(players[id].room === room) roomPlayers[id] = players[id];
+        }
+        
+        socket.emit('init_state', { 
+            players: roomPlayers, 
+            npcState,
+            tvUrl: roomData[room] ? roomData[room].tvUrl : '',
+            tvStartTime: roomData[room] ? roomData[room].tvStartTime : null
+        });
+        socket.to(room).emit('player_joined', players[socket.id]);
     });
 
     socket.on('move', (moveData) => {
         if (players[socket.id]) {
             players[socket.id].pos = moveData.pos;
             players[socket.id].rot = moveData.rot;
-            socket.broadcast.emit('player_moved', players[socket.id]);
+            socket.to(players[socket.id].room).emit('player_moved', players[socket.id]);
         }
     });
 
+    socket.on('change_room', (data) => {
+        if (!players[socket.id]) return;
+        const oldRoom = players[socket.id].room;
+        const newRoom = data.room || 'public';
+        
+        socket.leave(oldRoom);
+        io.to(oldRoom).emit('player_left', socket.id);
+        
+        players[socket.id].room = newRoom;
+        socket.join(newRoom);
+        
+        const roomPlayers = {};
+        for(let id in players) {
+            if(players[id].room === newRoom) roomPlayers[id] = players[id];
+        }
+        
+        socket.emit('init_state', { 
+            players: roomPlayers, 
+            npcState,
+            tvUrl: roomData[newRoom] ? roomData[newRoom].tvUrl : '',
+            tvStartTime: roomData[newRoom] ? roomData[newRoom].tvStartTime : null
+        });
+        socket.to(newRoom).emit('player_joined', players[socket.id]);
+    });
+
+    socket.on('change_video', (url) => {
+        if (!players[socket.id]) return;
+        const room = players[socket.id].room;
+        if (!roomData[room]) roomData[room] = {};
+        roomData[room].tvUrl = url;
+        roomData[room].tvStartTime = Date.now();
+        io.to(room).emit('change_video', { url, tvStartTime: roomData[room].tvStartTime });
+    });
+
     socket.on('chat_message', (msg) => {
-        io.emit('chat_message', msg);
+        if (players[socket.id]) {
+            io.to(players[socket.id].room).emit('chat_message', msg);
+        }
     });
 
     socket.on('disconnect', () => {
-        delete players[socket.id];
-        io.emit('player_left', socket.id);
+        const p = players[socket.id];
+        if (p) {
+            io.to(p.room).emit('player_left', socket.id);
+            delete players[socket.id];
+        }
     });
 
     // --- WEBRTC SIGNALING ---
@@ -135,7 +194,7 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     // Inicia o cérebro apenas após o servidor estar online
-    runNPCBrain();
+    // runNPCBrain(); // DESABILITADO TEMPORARIAMENTE
 });
 
 app.get('/status', (req, res) => {

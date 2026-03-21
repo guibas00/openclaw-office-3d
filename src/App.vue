@@ -6,7 +6,7 @@
     </div>
     
     <SkinSelectionScreen v-if="!isLoggedIn" @login="handleLogin" />
-    <Scene v-else :playerName="playerName" :playerSkin="playerSkin" />
+    <Scene v-else :playerName="playerName" :playerSkin="playerSkin" :roomCode="roomCode" @updateRoom="roomCode = $event" />
   </div>
 </template>
 
@@ -18,10 +18,12 @@ import Scene from './components/Scene.vue';
 const isLoggedIn = ref(false);
 const playerName = ref('');
 const playerSkin = ref(null);
+const roomCode = ref('public');
 
 function handleLogin(data) {
   playerName.value = data.name;
   playerSkin.value = data.skin;
+  roomCode.value = data.roomCode;
   isLoggedIn.value = true;
 }
 
