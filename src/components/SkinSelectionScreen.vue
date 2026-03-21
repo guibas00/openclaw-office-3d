@@ -9,6 +9,17 @@
         <input v-model="name" placeholder="Escreva seu nome..." @keyup.enter="start" class="main-input" />
       </div>
 
+      <div class="input-section room-section">
+        <label>Tipo de Sala:</label>
+        <div class="room-buttons">
+          <button :class="{ active: roomType === 'public' }" @click="roomType = 'public'">🌐 Pública</button>
+          <button :class="{ active: roomType === 'private' }" @click="roomType = 'private'">🔒 Privada</button>
+        </div>
+        <div v-if="roomType === 'private'" style="margin-top: 10px;">
+          <input v-model="roomCode" placeholder="Código (vazio p/ criar nova)" class="main-input" />
+        </div>
+      </div>
+
       <div class="skin-system">
         <label>Escolha sua Skin:</label>
         <div class="preset-grid">
@@ -55,6 +66,8 @@ import { ref, reactive } from 'vue';
 
 const name = ref('');
 const selectedSkin = ref('blue');
+const roomType = ref('public');
+const roomCode = ref('');
 const emit = defineEmits(['login']);
 
 const skins = {
@@ -72,20 +85,25 @@ const customData = reactive({
 function start() {
   if (!name.value.trim()) return;
   const skin = selectedSkin.value === 'custom' ? { ...customData } : { ...skins[selectedSkin.value] };
-  emit('login', { name: name.value.trim(), skin });
+  let finalRoomCode = 'public';
+  if (roomType.value === 'private') {
+    finalRoomCode = roomCode.value.trim() || Math.random().toString(36).substring(2, 8).toUpperCase();
+  }
+  emit('login', { name: name.value.trim(), skin, roomCode: finalRoomCode });
 }
 </script>
 
 <style scoped>
 .login-container {
-  display: flex; justify-content: center; align-items: center;
+  display: flex; justify-content: center; align-items: flex-start;
   width: 100vw; height: 100vh; background: radial-gradient(circle, #1a1a1a 0%, #000000 100%);
   color: #ddaa55; font-family: 'Inter', sans-serif;
+  overflow-y: auto; padding: 30px 0; box-sizing: border-box;
 }
 .login-box {
-  background: rgba(15, 15, 15, 0.98); padding: 40px; border: 2px solid #ddaa55;
+  background: rgba(15, 15, 15, 0.98); padding: 30px; border: 2px solid #ddaa55;
   border-radius: 20px; text-align: center; box-shadow: 0 0 60px rgba(0,0,0,1);
-  width: 380px; backdrop-filter: blur(10px);
+  width: 380px; max-width: 90vw; margin: auto; backdrop-filter: blur(10px);
 }
 .title { font-size: 28px; margin: 0; text-shadow: 0 0 10px #ddaa55; letter-spacing: 2px; }
 .subtitle { opacity: 0.7; font-size: 14px; margin: 10px 0 30px; }
@@ -96,6 +114,13 @@ function start() {
   border-radius: 10px; box-sizing: border-box; outline: none; transition: border-color 0.3s;
 }
 .main-input:focus { border-color: #ddaa55; }
+
+.room-buttons { display: flex; gap: 10px; margin-top: 5px; }
+.room-buttons button {
+  flex: 1; padding: 10px; background: #222; color: #fff; border: 1px solid #444;
+  border-radius: 8px; cursor: pointer; transition: 0.2s; font-family: 'Inter', sans-serif;
+}
+.room-buttons button.active { background: #ddaa55; color: #000; border-color: #ddaa55; font-weight: bold; }
 
 .skin-system { text-align: left; margin-bottom: 30px; }
 .preset-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }

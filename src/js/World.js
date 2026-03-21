@@ -138,10 +138,10 @@ export class World {
         // --- FURNITURE ---
         
         // Wardrobe
-        this._addBox(2.0, 4.0, 1.2, 1.8, 2.0, -6.3, matWardrobe); // Body
-        this._addBox(0.04, 4.0, 0.05, 1.8, 2.0, -5.68, new THREE.MeshStandardMaterial({color:0x222222}), false); // Door split
-        this._addBox(0.05, 0.4, 0.1, 1.7, 2.0, -5.65, matPCWhite, false); // Handle L
-        this._addBox(0.05, 0.4, 0.1, 1.9, 2.0, -5.65, matPCWhite, false); // Handle R
+        this._addBox(2.0, 4.0, 1.2, 1.0, 2.0, -6.3, matWardrobe); // Body
+        this._addBox(0.04, 4.0, 0.05, 1.0, 2.0, -5.68, new THREE.MeshStandardMaterial({color:0x222222}), false); // Door split
+        this._addBox(0.05, 0.4, 0.1, 0.9, 2.0, -5.65, matPCWhite, false); // Handle L
+        this._addBox(0.05, 0.4, 0.1, 1.1, 2.0, -5.65, matPCWhite, false); // Handle R
 
         // Workbench 1 (Left Wall)
         this._addWorkbench(-6.0, 1.0, -1.0, 1.2, 4.0, true, matWorkbench, matMetalLeg);
@@ -168,11 +168,6 @@ export class World {
         poster1.rotation.y = Math.PI / 2;
         this.scene.add(poster1);
 
-        // Poster 2
-        const poster2 = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 3.2), matPoster2);
-        poster2.position.set(-1.5, 2.6, -6.88);
-        this.scene.add(poster2);
-
         // Window & Blinds
         const winW = 3.0; const winH = 2.0;
         this._addBox(winW, winH, 0.1, 4.5, 2.5, -7.0, new THREE.MeshBasicMaterial({color:0xddf0ff}), false); // Window glass light
@@ -189,6 +184,19 @@ export class World {
 
         // Tall Floor Plant (Dracaena)
         this._addFloorPlant(6.0, 0.0, -4.5, matPotCT, matPlant);
+
+        // --- TV SCREEN (YOUTUBE EMBED) ---
+        const tvWidth = 3.6;
+        const tvHeight = 2.0;
+        // Black frame (Backboard)
+        this._addBox(tvWidth + 0.2, tvHeight + 0.2, 0.1, -3.0, 3.2, -6.85, new THREE.MeshStandardMaterial({ color: 0x111111 }));
+
+        // Hole-Punch Screen (Writes 0 alpha to the WebGL Canvas for the CSS3DRenderer underneath)
+        const holeMat = new THREE.MeshBasicMaterial({ color: 0x000000, blending: THREE.NoBlending, opacity: 0 });
+        const holeGeom = new THREE.PlaneGeometry(tvWidth, tvHeight);
+        this.tvScreenMesh = new THREE.Mesh(holeGeom, holeMat);
+        this.tvScreenMesh.position.set(-3.0, 3.2, -6.79);
+        this.scene.add(this.tvScreenMesh);
 
         // Default to isometric state (ceiling and front walls hidden)
         this.setFirstPersonMode(false);

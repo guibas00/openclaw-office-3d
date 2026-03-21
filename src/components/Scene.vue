@@ -9,6 +9,21 @@
         <b>SISTEMA MULTIPLAYER</b><br>
         OLÁ, {{ playerName }} | WASD: Mover<br>
         <span id="status" style="color: yellow;">NPC: {{ npcLocalStatus }}</span><br>
+        
+        <div class="room-box">
+          Sala: <strong>{{ roomCode }}</strong>
+          <button v-if="roomCode !== 'public'" @click="copyRoom" class="copy-btn">📋 Copiar</button>
+          <button @click="changeRoomDialog" class="copy-btn" style="background: #3388aa">🔄 Trocar</button>
+        </div>
+        
+        <div class="room-box" style="margin-top: 5px;">
+          <strong>📺 TV: </strong>
+          <div style="display: flex; gap: 5px; margin-top: 5px;">
+             <input v-model="tvVideoUrl" placeholder="Link do YouTube..." style="width: 140px; background:#222; color:#fff; border:1px solid #444; border-radius:4px; padding: 4px;" @keydown.enter="requestVideoChange" />
+             <button @click="requestVideoChange" class="copy-btn" style="margin-left: 0; background: #c4302b">▶️ Tocar</button>
+          </div>
+        </div>
+
         <button @click="toggleCamera" class="cam-btn">
           Câmera: {{ isFirstPerson ? '1ª Pessoa' : 'Isométrica' }} (V)
         </button>
@@ -64,10 +79,14 @@ import { Player } from '../js/Player.js';
 import { NPC } from '../js/NPC.js';
 import { VoiceChat } from '../js/VoiceChat.js';
 import nipplejs from 'nipplejs';
+import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 
-const props = defineProps(['playerName', 'playerSkin']); // Recebe a skin
+const props = defineProps(['playerName', 'playerSkin', 'roomCode']); // Recebe a skin e a sala
+const emit = defineEmits(['updateRoom']);
 const container = ref(null);
 const npcLocalStatus = ref('Ocioso');
+const tvVideoUrl = ref('');
+const tvId = ref('');
 
 const chatMessages = ref([]);
 const chatInput = ref('');
@@ -106,8 +125,9 @@ function toggleVoiceMute() {
   }
 }
 
-let socket, scene, renderer, world, player, npc;
-let isoCamera, fpCamera, activeCamera;
+let scene, activeCamera, isoCamera, fpCamera, renderer, cssRenderer, tvIframeObj;
+let socket;
+let world, player, npc; // Moved these from the `let socket, scene, renderer, worlet` line
 let remotePlayers = {};
 const keys = {};
 
@@ -127,6 +147,26 @@ function sendChatMessage() {
     socket.emit('chat_message', { name: props.playerName, text: chatInput.value.trim() });
     chatInput.value = '';
     if (isMobile.value) showMobileChat.value = false;
+  }
+}
+
+function copyRoom() {
+  navigator.clipboard.writeText(props.roomCode);
+  alert("Código da sala copiado: " + props.roomCode);
+}
+
+function changeRoomDialog() {
+  const code = prompt("Digite o código da nova sala (ou deixe vazio para Sala Pública):");
+  if (code !== null) {
+    const newRoom = code.trim() || 'public';
+    socket.emit('change_room', { room: newRoom });
+    emit('updateRoom', newRoom);
+    
+    // Desconecta da chamada de voz se estiver em uma para limpar a sala
+    if (voiceChat && inVoiceChat.value) {
+      voiceChat.leaveVoiceChat();
+      inVoiceChat.value = false;
+    }
   }
 }
 
@@ -173,24 +213,131 @@ onUnmounted(() => {
   window.removeEventListener('keyup', onKeyUp);
 });
 
+function requestVideoChange() {
+  const url = tvVideoUrl.value.trim();
+  if (url && socket) {
+    if (extractYouTubeId(url) === null) {
+      alert("❌ Link do YouTube inválido! Formato ex: https://www.youtube.com/watch?v=...");
+      return;
+    }
+    socket.emit('change_video', url);
+    tvVideoUrl.value = '';
+  }
+}
+
+function extractYouTubeId(url) {
+  if (url.length === 11 && !url.includes('/') && !url.includes('?')) return url; // Already an ID
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|shorts\/|watch\?v=|watch\?.+&v=))((\w|-){11})/);
+  return match ? match[1] : null;
+}
+
+function setupTV(videoId, elapsed = 0) {
+  tvId.value = videoId;
+  if (!world || !world.tvScreenMesh) return;
+  
+  if (tvIframeObj) {
+    scene.remove(tvIframeObj);
+    if(tvIframeObj.element) tvIframeObj.element.remove();
+    tvIframeObj = null;
+  }
+
+  const div = document.createElement('div');
+  div.style.width = '720px';
+  div.style.height = '400px';
+  div.style.backgroundColor = '#000';
+  div.style.border = '5px solid #111';
+  
+  const iframe = document.createElement('iframe');
+  iframe.id = 'youtube-iframe';
+  iframe.style.width = '100%';
+  iframe.style.height = '100%';
+  let src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+  if (elapsed > 0) src += `&start=${elapsed}`;
+  iframe.src = src;
+  iframe.frameBorder = '0';
+  iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+  iframe.allowFullscreen = true;
+  div.appendChild(iframe);
+  
+  tvIframeObj = new CSS3DObject(div);
+  tvIframeObj.position.copy(world.tvScreenMesh.position);
+  tvIframeObj.position.z += 0.05; // Front of clipping mesh
+  tvIframeObj.rotation.copy(world.tvScreenMesh.rotation);
+  tvIframeObj.scale.set(3.6 / 720, 2.0 / 400, 1);
+  scene.add(tvIframeObj);
+}
+
+function changeLocalVideo(payload) {
+  const url = typeof payload === 'string' ? payload : payload.url;
+  const elapsed = payload.elapsed || 0;
+  
+  const videoId = extractYouTubeId(url);
+  console.log("📺 Atualizando TV 3D para ID:", videoId, "Start:", elapsed);
+  if (videoId) {
+    tvId.value = videoId;
+    if(!tvIframeObj) {
+      setupTV(videoId, elapsed);
+    } else {
+      while (tvIframeObj.element.firstChild) {
+          tvIframeObj.element.removeChild(tvIframeObj.element.firstChild);
+      }
+      const iframe = document.createElement('iframe');
+      iframe.id = 'youtube-iframe';
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
+      let src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+      if (elapsed > 0) src += `&start=${elapsed}`;
+      iframe.src = src;
+      iframe.frameBorder = '0';
+      iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+      iframe.allowFullscreen = true;
+      tvIframeObj.element.appendChild(iframe);
+    }
+  } else {
+    console.log("🔴 RegEx de YouTube falhou para:", url);
+  }
+}
+
 function initThree() {
   scene = new THREE.Scene();
+
   const aspect = window.innerWidth / window.innerHeight;
-  const d = 5;
-  isoCamera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 0.1, 1000);
-  fpCamera = new THREE.PerspectiveCamera(70, aspect, 0.1, 1000);
+
+  const d = 10;
+  isoCamera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 100);
+  isoCamera.position.set(10, 10, 10);
+  isoCamera.lookAt(0, 0, 0);
+
+  fpCamera = new THREE.PerspectiveCamera(75, aspect, 0.1, 100);
+  fpCamera.position.set(0, 1.6, 0);
 
   activeCamera = isoCamera;
   activeCamera.position.set(10, 10, 10);
   activeCamera.lookAt(0, 0, 0);
 
-  renderer = new THREE.WebGLRenderer({ antialias: !isMobile.value });
+  // --- CSS3D Renderer ---
+  cssRenderer = new CSS3DRenderer();
+  cssRenderer.setSize(window.innerWidth, window.innerHeight);
+  cssRenderer.domElement.style.position = 'absolute';
+  cssRenderer.domElement.style.top = '0px';
+  cssRenderer.domElement.style.zIndex = '1';
+  cssRenderer.domElement.style.pointerEvents = 'auto'; // allow interacting with video
+  container.value.appendChild(cssRenderer.domElement);
+
+  // --- WebGL Renderer ---
+  renderer = new THREE.WebGLRenderer({ antialias: !isMobile.value, alpha: true });
+  renderer.setClearColor(0x000000, 0); // Fundo furável para CSS3D
   renderer.setPixelRatio(isMobile.value ? 1.0 : Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = !isMobile.value; // Desabilita mapa de sombras inteiro no celular
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ReinhardToneMapping;
   renderer.toneMappingExposure = 1.2;
+  
+  renderer.domElement.style.position = 'absolute';
+  renderer.domElement.style.top = '0px';
+  renderer.domElement.style.zIndex = '2';
+  renderer.domElement.style.pointerEvents = 'none'; // Cliques passam pro CSS3D e html
   container.value.appendChild(renderer.domElement);
 
   // --- ILUMINAÇÃO WORKSHOP ---
@@ -215,7 +362,8 @@ function initThree() {
   fpCamera.rotation.y = Math.PI; // Look forward (+Z is forward mapping in Player, rotate 180 deg to face it)
   player.group.add(fpCamera);
 
-  npc = new NPC(scene, null, 'Assistant');
+  // npc = new NPC(scene, null, 'Assistant');
+
 }
 
 function addYellowLight(x, y, z, intensity) {
@@ -234,15 +382,37 @@ function initSocket() {
   voiceChat = new VoiceChat(socket);
 
   socket.on('connect', () => {
-    // Envia NOME e SKIN no join
-    socket.emit('join', { name: props.playerName, skin: props.playerSkin });
+    // Envia NOME, SKIN e ROOM no join
+    socket.emit('join', { name: props.playerName, skin: props.playerSkin, room: props.roomCode });
   });
 
   socket.on('init_state', (state) => {
-    Object.values(state.players).forEach(p => {
-      if (p.id !== socket.id) addRemotePlayer(p);
-    });
-    updateNPC(state.npcState);
+    // Remove jogadores antigos se estiver vindo de uma troca de sala
+    for (let id in remotePlayers) {
+      if (id !== socket.id) {
+        scene.remove(remotePlayers[id].group); // Changed .mesh to .group as per Player class
+        delete remotePlayers[id];
+      }
+    }
+    
+    npcLocalStatus.value = state.npcState ? state.npcState.status : 'Ocioso';
+    if (npc) {
+      npc.group.position.copy(state.npcState.pos); // Changed .mesh to .group as per NPC class
+      npc.group.rotation.y = state.npcState.rot; // Changed .mesh to .group as per NPC class
+    }
+    
+    for (let id in state.players) {
+      if (id !== socket.id) {
+        addRemotePlayer(state.players[id]); // Pass the player object directly
+      }
+    }
+    
+    if (state.tvUrl) {
+      const elapsed = state.tvStartTime ? Math.floor((Date.now() - state.tvStartTime) / 1000) : 0;
+      changeLocalVideo({ url: state.tvUrl, elapsed });
+    } else {
+      setupTV('jfKfPfyJRdk', 0); // Default video
+    }
   });
 
   socket.on('player_joined', (p) => {
@@ -276,12 +446,21 @@ function initSocket() {
     }
   });
 
-  socket.on('npc_update', (state) => {
-    updateNPC(state);
-  });
-
   socket.on('npc_status', (status) => {
     npcLocalStatus.value = status;
+  });
+
+  socket.on('npc_update', (state) => {
+    npcLocalStatus.value = state.status;
+    if (npc) {
+      npc.updateState(state.pos, state.rot, state.commands);
+    }
+  });
+
+  socket.on('change_video', (data) => {
+    const url = typeof data === 'string' ? data : data.url;
+    const elapsed = data.tvStartTime ? Math.floor((Date.now() - data.tvStartTime) / 1000) : 0;
+    changeLocalVideo({ url, elapsed });
   });
 
   socket.on('chat_message', (msg) => {
@@ -313,11 +492,12 @@ function addRemotePlayer(p) {
   remotePlayers[p.id] = remote;
 }
 
-function updateNPC(state) {
-  npc.group.position.set(state.pos.x, state.pos.y, state.pos.z);
-  npc.group.rotation.y = state.rot;
-  npc.currentCommands = state.commands;
-}
+// This function is now replaced by the npc.updateState in the socket.on('npc_update')
+// function updateNPC(state) {
+//   npc.group.position.set(state.pos.x, state.pos.y, state.pos.z);
+//   npc.group.rotation.y = state.rot;
+//   npc.currentCommands = state.commands;
+// }
 
 function onKeyDown(e) { 
   if (isChatFocused.value) return; 
@@ -345,7 +525,8 @@ function animate() {
       rot: player.group.rotation.y
     });
 
-    if (!isFirstPerson.value) {
+    // Position activeCamera based on mode
+    if (!isFirstPerson.value && player && player.group) {
       const targetPos = player.group.position.clone().add(new THREE.Vector3(10, 10, 10));
       isoCamera.position.lerp(targetPos, 0.05);
       isoCamera.lookAt(player.group.position);
@@ -361,11 +542,12 @@ function animate() {
   }
 
   renderer.render(scene, activeCamera);
+  if (cssRenderer) cssRenderer.render(scene, activeCamera);
 }
 </script>
 
 <style scoped>
-.scene-container { width: 100%; height: 100%; }
+.scene-container { width: 100%; height: 100%; overflow: hidden; background: radial-gradient(circle, #1a1a1a 0%, #000000 100%); }
 #ui { 
     position: absolute; top: 20px; left: 20px; color: #ddaa55; 
     background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; border: 1px solid #555; 
@@ -381,6 +563,10 @@ function animate() {
   position: absolute; top: 0; left: 0; width: 100%; height: 100%;
   z-index: 95;
 }
+.room-box { margin-top: 10px; margin-bottom: 5px; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 6px; font-size: 13px; }
+.copy-btn { background: #555; color: #fff; border: none; padding: 4px 8px; border-radius: 4px; margin-left: 10px; cursor: pointer; }
+.copy-btn:hover { background: #777; }
+
 .cam-btn {
   margin-top: 10px; background: #ddaa55; color: #000; border: none; padding: 6px 10px;
   cursor: pointer; border-radius: 4px; font-weight: bold; font-family: 'Inter', sans-serif;
